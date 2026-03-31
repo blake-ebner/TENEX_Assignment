@@ -1,0 +1,24 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Node
+node_modules/
+.next/
+
+# Docker
+postgres_data/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
