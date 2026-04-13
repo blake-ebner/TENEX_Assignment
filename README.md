@@ -1,4 +1,4 @@
-# TENEX SOC Analyzer
+# SOC Analyzer
 
 An AI-powered web application for SOC analysts to upload ZScaler web proxy logs and receive instant threat analysis powered by Claude AI.
 
