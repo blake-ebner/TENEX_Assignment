@@ -8,6 +8,9 @@ An AI-powered web application for SOC analysts to upload ZScaler web proxy logs 
 - Drag-and-drop log file upload
 - AI analysis of ZScaler web proxy logs using Claude (Anthropic)
 - Dashboard showing: threat summary, risk level, event timeline, anomaly table with confidence scores, top users, and SOC recommendations
+- **MITRE ATT&CK mapping** — every anomaly is tagged with the techniques it demonstrates
+- **Sigma detection rules** — the report hands back deployable SIEM rules, not just findings
+- **Cross-upload trends** — repeat offenders and recurring techniques across every log you've analyzed
 - Live progress while the analysis runs — each pipeline stage is reported as it completes, not a blank spinner
 - Upload history ("My Analyses") — reports are stored server-side, so closing the tab doesn't lose them
 - Filter and sort the anomaly table by user, URL, reason, severity, or confidence
@@ -95,6 +98,7 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 3. **Watch** the pipeline stages tick by (~10–20 seconds while Claude analyzes the logs)
 4. **View** the full analysis dashboard, and export it as Markdown if you need it in a ticket
 5. **Revisit** any past report from **My Analyses** — the analysis runs on the server, so it survives a closed tab
+6. **Analyze a second file**, then open **Trends** — repeat offenders and recurring ATT&CK techniques only become visible across two or more reports
 
 ---
 
@@ -132,10 +136,11 @@ The selected events and the aggregate statistics are sent to **Claude Opus 5** (
 - **Summary** — plain-English overview of the log file
 - **Risk Level** — Critical / High / Medium / Low classification
 - **Timeline** — the 10 most significant events in chronological order
-- **Anomalies** — suspicious events with explanations and a confidence score (0.0–1.0)
+- **Anomalies** — suspicious events with explanations, a confidence score (0.0–1.0), and the MITRE ATT&CK techniques they demonstrate
 - **Top Users** — most active users with risk notes
 - **Threat Breakdown** — counts per threat category (malware, data loss, policy violations, network scans, C2 communications)
 - **Recommendations** — specific, actionable next steps
+- **Detection Rules** — Sigma rules that would catch the same activity next time
 
 The report shape is declared as Pydantic models and passed to the API as a structured output schema (`client.messages.parse(..., output_format=SocAnalysis)`), so the response is *guaranteed* to match it. There is no markdown-fence stripping or hand-rolled `json.loads` that a single malformed response could break. Every field — including risk level and recommendations — is persisted to Postgres, so the dashboard renders Claude's own judgement rather than re-deriving it in the browser.
 
@@ -162,6 +167,28 @@ Claude evaluates each event against multiple signals simultaneously:
 
 The confidence score reflects how many of these signals align — a high-confidence anomaly has multiple corroborating indicators.
 
+### ATT&CK Mapping and Detection Rules
+
+A finding is only half the job. Two things turn a report into something a SOC team can act on:
+
+**MITRE ATT&CK techniques.** Each anomaly is tagged with the techniques it demonstrates (`T1071.001` — Web Protocols, `T1041` — Exfiltration Over C2 Channel). Every SOC tool speaks ATT&CK, so this is how a finding here gets compared against detections and coverage gaps elsewhere. The prompt is explicit that accuracy beats coverage: an empty list is the right answer for an event that doesn't clearly demonstrate a technique, because an analyst will act on a wrong technique ID.
+
+**Sigma rules.** For findings worth alerting on, Claude writes a complete Sigma rule — vendor-neutral YAML that drops into a SIEM. The dashboard shows each rule collapsed with a copy button; the Markdown export includes them in fenced `yaml` blocks.
+
+The rules are written against the exact field names `parser.py` produces. That list is *imported* into the prompt from `parser.FIELDS_WE_CARE_ABOUT` rather than duplicated, so a rule can never reference a field the pipeline doesn't emit.
+
+### Cross-Upload Trends
+
+Every other view in the app looks at one log file. `/trends` looks across all of them, because the useful question usually isn't "was this file bad" but "is this the fourth week running that the same account got flagged".
+
+`GET /api/trends` rolls up every completed report and surfaces:
+
+- **Repeat offenders** — users ranked by how many *separate reports* flagged them
+- **Recurring ATT&CK techniques** — behaviour that keeps reappearing, which is a control gap rather than an incident
+- **Risk over time** — every analysis in order
+
+The ranking counts distinct reports, not raw anomaly hits. Five hits in one bad afternoon is one event; three hits across three weeks is a pattern, and the second should rank higher. That logic lives in `trends.py` as a pure function over plain dicts — no ORM, no network — so it's tested without a database.
+
 ---
 
 ## Tech Stack
@@ -181,39 +208,57 @@ The confidence score reflects how many of these signals align — a high-confide
 ```
 TENEX_Assignment/
 ├── backend/
-│   ├── main.py            # FastAPI entry point
-│   ├── models.py          # SQLAlchemy ORM models
-│   ├── database.py        # DB connection + lightweight schema updates
-│   ├── parser.py          # ZScaler log parser + event scoring/selection
-│   ├── ai.py              # Claude API integration (structured outputs, async)
+│   ├── main.py             # FastAPI entry point
+│   ├── models.py           # SQLAlchemy ORM models
+│   ├── database.py         # DB connection + lightweight schema updates
+│   ├── parser.py           # ZScaler log parser + event scoring/selection
+│   ├── ai.py               # Claude API integration (structured outputs, async)
+│   ├── trends.py           # Cross-upload aggregation (pure, no DB)
+│   ├── .env                # Set ANTHROPIC_API_KEY here (gitignored)
 │   ├── tests/
-│   │   └── test_parser.py # Parser, stats, and event-selection tests
+│   │   ├── test_parser.py  # Parser, stats, and event-selection tests
+│   │   └── test_trends.py  # Cross-upload aggregation tests
 │   └── routers/
-│       ├── auth.py        # Register + login endpoints
-│       ├── upload.py      # File upload + upload history endpoints
-│       └── analyze.py     # Background analysis job, status, and results
+│       ├── auth.py         # Register + login endpoints
+│       ├── upload.py       # File upload + upload history endpoints
+│       └── analyze.py      # Background analysis job, status, results, trends
 ├── frontend/
 │   └── src/
 │       ├── app/
-│       │   ├── login/     # Login + register page
-│       │   ├── upload/    # File upload page
-│       │   ├── history/   # "My Analyses" — past uploads and reports
-│       │   └── dashboard/ # Analysis results dashboard
+│       │   ├── login/      # Login + register page
+│       │   ├── upload/     # File upload page
+│       │   ├── history/    # "My Analyses" — past uploads and reports
+│       │   ├── trends/     # Cross-upload patterns
+│       │   └── dashboard/  # Analysis results dashboard
 │       └── lib/
-│           ├── api.ts     # Backend API client
-│           └── report.ts  # Report types + Markdown export
+│           ├── api.ts      # Backend API client
+│           └── report.ts   # Report types + Markdown export
 ├── sample_logs/
 │   ├── normal_traffic.log
 │   └── incident_scenario.log
-├── docker-compose.yml
-└── .env                   # Set ANTHROPIC_API_KEY here
+└── docker-compose.yml
 ```
 
 ---
 
-## Running the Tests
+## API Reference
 
-The parser is the one part of the pipeline with no AI in it, so it's the part worth pinning down with tests — malformed lines, missing fields, non-numeric bytes, and the event-selection logic that decides what a large file sends to Claude.
+All `/api` routes require an `Authorization: Bearer <token>` header.
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/auth/register` | Create an account, returns a JWT |
+| `POST` | `/auth/login` | Log in, returns a JWT |
+| `POST` | `/api/upload` | Upload a `.log`/`.txt` file, returns an `upload_id` |
+| `GET` | `/api/uploads` | This user's uploads, newest first |
+| `POST` | `/api/analyze/{id}` | Queue analysis; returns immediately |
+| `GET` | `/api/analyze/{id}/status` | Current status and pipeline stage |
+| `GET` | `/api/results/{id}` | The stored report (409 if not finished) |
+| `GET` | `/api/trends` | Cross-upload patterns across all reports |
+
+---
+
+## Running the Tests
 
 ```bash
 cd backend
@@ -221,4 +266,19 @@ pip install -r requirements.txt
 pytest
 ```
 
-No database or API key is needed — the tests write temporary log files and exercise `parser.py` directly.
+No database or API key is needed — the tests build temporary log files and call the
+modules directly.
+
+The two tested modules are the ones where the logic is deterministic and the bugs
+would be silent:
+
+- **`parser.py`** — malformed lines, missing fields, non-numeric bytes, and the
+  event-selection logic that decides what a large file sends to Claude. One test
+  pins the case that matters most: a threat at line 900 of a 1,000-line file must
+  still reach the prompt.
+- **`trends.py`** — that a user flagged across three weeks outranks one flagged
+  five times in a single file, plus the degenerate inputs (missing users, junk
+  confidence values, reports predating ATT&CK mapping).
+
+The AI layer itself isn't unit-tested — its output is model-generated, so the
+guarantee comes from the enforced response schema rather than from assertions.
