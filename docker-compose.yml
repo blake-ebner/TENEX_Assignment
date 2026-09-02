@@ -19,10 +19,15 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    # backend/.env is the single source of truth for secrets, so there is one
+    # file to edit and it is the same one the app reads outside Docker.
+    # (ANTHROPIC_API_KEY, SECRET_KEY, and the optional ANTHROPIC_WORKSPACE_ID.)
+    env_file:
+      - ./backend/.env
     environment:
+      # Set here rather than in .env because "db" is the compose service name
+      # and only resolves inside this network.
       DATABASE_URL: postgresql://postgres:secret@db:5432/loganalyzer
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      SECRET_KEY: ${SECRET_KEY}
     depends_on:
       db:
         condition: service_healthy

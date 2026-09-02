@@ -81,6 +81,13 @@ export default function UploadPage() {
           <p className="text-gray-400 mt-2 text-sm">
             Upload a ZScaler web proxy log for AI-powered threat detection
           </p>
+          {/* Past reports are kept on the server — this is how you get back to them */}
+          <button
+            onClick={() => router.push('/history')}
+            className="mt-3 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            View my past analyses &rarr;
+          </button>
         </div>
 
         {/* Drop zone — the big dashed box

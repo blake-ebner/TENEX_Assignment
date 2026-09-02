@@ -99,8 +99,14 @@ def get_uploads(
     token = authorization.replace("Bearer ", "")
     current_user = get_current_user(token, db)
 
-    # Fetch all uploads owned by this user
-    uploads = db.query(Upload).filter(Upload.user_id == current_user.id).all()
+    # Fetch all uploads owned by this user, most recent first — the history
+    # page shows them in this order, so it should not have to re-sort.
+    uploads = (
+        db.query(Upload)
+        .filter(Upload.user_id == current_user.id)
+        .order_by(Upload.uploaded_at.desc())
+        .all()
+    )
 
     # Return a clean list of dicts (avoid exposing internal file paths)
     return [

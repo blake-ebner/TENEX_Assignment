@@ -6,11 +6,13 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine, Base
+from database import engine, Base, ensure_schema
 from routers import auth, upload, analyze
 
-# Create all database tables on startup (if they don't already exist)
+# Create all database tables on startup (if they don't already exist),
+# then add any columns introduced since the database was first created.
 Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 app = FastAPI(title="TENEX_Assignment - Log Analyzer")
 

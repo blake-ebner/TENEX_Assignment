@@ -16,6 +16,11 @@ import uuid
 import datetime
 
 
+def utcnow() -> datetime.datetime:
+    """Current UTC time. Used as the default for every timestamp column."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # User
 # One row per registered account. Passwords are never stored in plain text.
@@ -26,7 +31,7 @@ class User(Base):
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # auto-generated UUID
     username      = Column(String, unique=True, nullable=False)                        # must be unique across all users
     password_hash = Column(String, nullable=False)                                     # bcrypt hash — never plain text
-    created_at    = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))  # set automatically on creation
+    created_at    = Column(DateTime, default=utcnow)                                   # set automatically on creation
 
     # One user can have many uploads (one-to-many)
     uploads = relationship("Upload", back_populates="user")
@@ -44,8 +49,13 @@ class Upload(Base):
     user_id     = Column(UUID(as_uuid=True), ForeignKey("users.id"))                # which user uploaded this file
     filename    = Column(String, nullable=False)                                     # original filename from the user
     file_path   = Column(String, nullable=False)                                     # where the file lives on disk
-    uploaded_at = Column(DateTime, default=datetime.datetime.utcnow)                 # set automatically on creation
-    status      = Column(String, default="pending")                                  # pending | analyzing | done | error
+    uploaded_at = Column(DateTime, default=utcnow)                                   # set automatically on creation
+    status      = Column(String, default="pending")                                  # pending | queued | analyzing | done | error
+
+    # Human-readable description of the current pipeline step, polled by the
+    # dashboard so the user sees progress instead of an unexplained spinner.
+    stage         = Column(String)
+    error_message = Column(Text)   # populated when status is "error"
 
     # Link back to the user who owns this upload (many-to-one)
     user   = relationship("User", back_populates="uploads")
@@ -66,11 +76,14 @@ class AnalysisResult(Base):
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # auto-generated UUID
     upload_id        = Column(UUID(as_uuid=True), ForeignKey("uploads.id"))               # which upload this belongs to
     summary          = Column(Text)                                                        # plain English overview from Claude
+    risk_level       = Column(String)                                                      # Critical | High | Medium | Low
     timeline         = Column(JSONB)                                                       # list of significant events in order
     anomalies        = Column(JSONB)                                                       # list of suspicious/flagged events
     top_users        = Column(JSONB)                                                       # most active users with risk notes
     threat_breakdown = Column(JSONB)                                                       # counts per threat category
-    created_at       = Column(DateTime, default=datetime.datetime.utcnow)                  # set automatically on creation
+    recommendations  = Column(JSONB)                                                       # actionable next steps from Claude
+    detections       = Column(JSONB)                                                       # deployable Sigma rules from Claude
+    created_at       = Column(DateTime, default=utcnow)                                    # set automatically on creation
 
     # Link back to the upload this result was generated for (many-to-one)
     upload = relationship("Upload", back_populates="result")

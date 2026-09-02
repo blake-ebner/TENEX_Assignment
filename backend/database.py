@@ -4,7 +4,7 @@
 # Exports `engine`, `Base`, and `get_db` for use across the app.
 # ---------------------------------------------------------------------------
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -27,6 +27,34 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Base class that all ORM models will inherit from
 Base = declarative_base()
+
+
+# ---------------------------------------------------------------------------
+# Columns added after the initial release. Base.metadata.create_all() only
+# creates missing *tables*, never missing columns, so an existing database
+# would keep the old shape and every query touching a new column would fail.
+# These statements are idempotent — running them on a fresh database is a no-op.
+# ---------------------------------------------------------------------------
+SCHEMA_UPDATES = [
+    "ALTER TABLE uploads ADD COLUMN IF NOT EXISTS stage VARCHAR",
+    "ALTER TABLE uploads ADD COLUMN IF NOT EXISTS error_message TEXT",
+    "ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS risk_level VARCHAR",
+    "ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS recommendations JSONB",
+    "ALTER TABLE analysis_results ADD COLUMN IF NOT EXISTS detections JSONB",
+]
+
+
+def ensure_schema() -> None:
+    """
+    Brings an existing database up to date with the current models.
+
+    Called once on startup, after create_all(). A real deployment would use
+    Alembic migrations; this keeps a local dev database working across an
+    upgrade without asking anyone to drop their Postgres volume.
+    """
+    with engine.begin() as conn:
+        for statement in SCHEMA_UPDATES:
+            conn.execute(text(statement))
 
 
 def get_db():

@@ -31,8 +31,16 @@ export const uploadFile = async (file: File) => {
   return res.data
 }
 
+// Starts (or resumes) analysis. Returns immediately with { status, stage } —
+// the analysis itself runs as a background job on the backend.
 export const analyzeUpload = async (uploadId: string) => {
   const res = await api.post(`/api/analyze/${uploadId}`)
+  return res.data
+}
+
+// Polled while an analysis is running. Returns { status, stage, error }.
+export const getAnalysisStatus = async (uploadId: string) => {
+  const res = await api.get(`/api/analyze/${uploadId}/status`)
   return res.data
 }
 
@@ -43,5 +51,11 @@ export const getResults = async (uploadId: string) => {
 
 export const getUploads = async () => {
   const res = await api.get('/api/uploads')
+  return res.data
+}
+
+// Cross-upload patterns rolled up from every completed analysis this user owns.
+export const getTrends = async () => {
+  const res = await api.get('/api/trends')
   return res.data
 }
